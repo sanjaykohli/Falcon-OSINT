@@ -1,119 +1,127 @@
+import shodan
+import whois
+from googlesearch import search
 import requests
-from bs4 import BeautifulSoup
-import re
-import concurrent.futures
-import time
-from urllib.parse import urlparse
-import sys
 import argparse
-from rich.console import Console
-from rich.table import Table
-from rich import print as rprint
-from fake_useragent import UserAgent
+import json
+from datetime import datetime
 
-class Falcon:
+class FalconOSINT:
     def __init__(self):
-        self.console = Console()
-        self.ua = UserAgent()
-        self.results = {}
-        
-        # Common social media and platforms to check
+        # Shodan API key (replace with your own key)
+        self.shodan_key = 'pHHlgpFt8Ka3Stb5UlTxcaEwciOeF2QM'
+        self.shodan_client = shodan.Shodan(self.shodan_key)
+
+        # User-Agent for HTTP requests
+        self.headers = {'User-Agent': 'Mozilla/5.0 (Falcon-OSINT/2.0)'}
+
+        # Platforms for username checks
         self.platforms = {
             'GitHub': 'https://github.com/{}',
             'Twitter': 'https://twitter.com/{}',
-            'Instagram': 'https://www.instagram.com/{}',
-            'Reddit': 'https://www.reddit.com/user/{}',
-            'LinkedIn': 'https://www.linkedin.com/in/{}',
-            'Medium': 'https://medium.com/@{}',
-            'DeviantArt': 'https://www.deviantart.com/{}',
-            'Pinterest': 'https://www.pinterest.com/{}',
-            'Spotify': 'https://open.spotify.com/user/{}',
-            'Steam': 'https://steamcommunity.com/id/{}'
+            'Reddit': 'https://reddit.com/user/{}',
+            'LinkedIn': 'https://linkedin.com/in/{}',
+            'Instagram': 'https://instagram.com/{}'
         }
 
-    def make_request(self, url):
-        headers = {
-            'User-Agent': self.ua.random,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        }
+    def check_username(self, platform, url_template, username):
+        """Check if the username exists on a specific platform."""
         try:
-            response = requests.get(url, headers=headers, timeout=10)
-            return response
-        except requests.RequestException:
-            return None
-
-    def extract_info(self, platform, username, response):
-        info = {'exists': False, 'details': {}}
-        
-        if response and response.status_code == 200:
-            info['exists'] = True
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Platform-specific extraction logic
-            if platform == 'GitHub':
-                info['details']['name'] = soup.find('span', {'itemprop': 'name'})
-                info['details']['bio'] = soup.find('div', {'class': 'p-note'})
-                repos = soup.find('span', {'class': 'Counter'})
-                if repos:
-                    info['details']['repositories'] = repos.text.strip()
-                
-            elif platform == 'Twitter':
-                bio = soup.find('div', {'data-testid': 'UserDescription'})
-                if bio:
-                    info['details']['bio'] = bio.text.strip()
-                    
-            # Add more platform-specific extraction as needed
-            
-        return info
-
-    def check_username(self, username):
-        self.console.print(f"\n[bold blue]🦅 Falcon OSINT - Scanning username: {username}[/bold blue]\n")
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_url = {
-                executor.submit(self.make_request, url.format(username)): (platform, url.format(username))
-                for platform, url in self.platforms.items()
+            url = url_template.format(username)
+            response = requests.get(url, headers=self.headers, timeout=10)
+            return {
+                'platform': platform,
+                'url': url,
+                'exists': response.status_code == 200
             }
-            
-            for future in concurrent.futures.as_completed(future_to_url):
-                platform, url = future_to_url[future]
-                response = future.result()
-                info = self.extract_info(platform, username, response)
-                self.results[platform] = info
+        except Exception as e:
+            return {'platform': platform, 'error': str(e)}
 
-    def display_results(self):
-        table = Table(show_header=True, header_style="bold magenta")
-        table.add_column("Platform")
-        table.add_column("Status")
-        table.add_column("Details")
+    def check_shodan(self, ip):
+        """IP analysis using Shodan Python package."""
+        try:
+            host_info = self.shodan_client.host(ip)
+            return {
+                'ip': ip,
+                'hostnames': host_info.get('hostnames', []),
+                'ports': host_info.get('ports', []),
+                'os': host_info.get('os'),
+                'vulns': host_info.get('vulns', []),
+                'data': host_info.get('data', [])
+            }
+        except shodan.APIError as e:
+            return {'error': str(e)}
 
-        for platform, info in self.results.items():
-            status = "✅ Found" if info['exists'] else "❌ Not Found"
-            details = ""
-            if info['exists'] and info['details']:
-                details = ", ".join(f"{k}: {v}" for k, v in info['details'].items() if v)
-            
-            table.add_row(
-                platform,
-                status,
-                details or "No additional information"
-            )
+    def check_whois(self, domain):
+        """Domain WHOIS lookup using python-whois."""
+        try:
+            domain_info = whois.whois(domain)
+            return {
+                'domain': domain,
+                'registrar': domain_info.registrar,
+                'creation_date': str(domain_info.creation_date),
+                'expiration_date': str(domain_info.expiration_date),
+                'emails': domain_info.emails,
+                'name_servers': domain_info.name_servers
+            }
+        except Exception as e:
+            return {'error': str(e)}
 
-        self.console.print(table)
+    def google_dorking(self, query):
+        """Basic Google dorking using googlesearch-python."""
+        try:
+            results = list(search(query, num_results=5))
+            return {'query': query, 'results': results}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def analyze(self, username, ip=None, domain=None):
+        print(f"\n[+] Starting analysis for username: {username}")
+        results = {'username': username, 'timestamp': datetime.now().isoformat()}
+        
+        # Username checks on common platforms
+        platform_results = []
+        for platform, url_template in self.platforms.items():
+            result = self.check_username(platform, url_template, username)
+            platform_results.append(result)
+
+        results['platform_checks'] = platform_results
+
+        # Shodan IP analysis
+        if ip:
+            results['shodan'] = self.check_shodan(ip)
+
+        # WHOIS domain analysis
+        if domain:
+            results['whois'] = self.check_whois(domain)
+
+        # Google dorking
+        dork_query = f"site:{username}.com"
+        results['google_dorking'] = self.google_dorking(dork_query)
+
+        return results
+
+    def export_results(self, data, format='json'):
+        filename = f"falcon_report_{data['username']}.{format}"
+        if format == 'json':
+            with open(filename, 'w') as f:
+                json.dump(data, f, indent=4)
+        print(f"[+] Results exported to {filename}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Falcon OSINT - Username Reconnaissance Tool')
-    parser.add_argument('username', help='Username to investigate')
-    parser.add_argument('-o', '--output', help='Output results to a file')
+    parser = argparse.ArgumentParser(description='Falcon OSINT Analyzer with Shodan, WHOIS, and Google Dorking')
+    parser.add_argument('username', help='Username to analyze')
+    parser.add_argument('--ip', help='IP address for Shodan analysis (optional)')
+    parser.add_argument('--domain', help='Domain for WHOIS lookup (optional)')
+    parser.add_argument('--format', choices=['json'], default='json', help='Export format (default: json)')
     args = parser.parse_args()
 
-    falcon = Falcon()
-    falcon.check_username(args.username)
-    falcon.display_results()
+    analyzer = FalconOSINT()
+    try:
+        results = analyzer.analyze(args.username, args.ip, args.domain)
+        analyzer.export_results(results, args.format)
+    except Exception as e:
+        print(f"\n[ERROR] An error occurred: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    exit(main())
