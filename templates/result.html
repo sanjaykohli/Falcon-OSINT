@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="title">Results for "{{ query }}"</h2>
+
+<div class="results">
+    {% for key, result_list in data.items() %}
+    <div class="result-section">
+        <h3>{{ key.capitalize() }}</h3>
+        <ul>
+            {% for result in result_list %}
+            <li>
+                <a href="{{ result.url }}" target="_blank" class="result-link">{{ result.title }}</a>
+                {% if result.description %}
+                <p class="result-description">{{ result.description }}</p>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
