@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 
 app = Flask(__name__)
 
-NEWS_API_KEY = "28f24e8a6a014e7286ff985797f076c2"
+NEWS_API_KEY = "API_KEY"
 
 # Helper function to fetch metadata
 async def fetch_metadata(session, url, category_description=None):
