@@ -41,6 +41,3 @@ Falcon OSINT is a web-based Open Source Intelligence (OSINT) research tool that 
 
 Contributions are welcome. Please open an issue or submit a pull request.
 
-## License
-
-MIT License
